@@ -138,7 +138,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
 /// so 9+ leading zeros guarantees we're looking at fill + EOL, not a code.
 ///
 /// We check for EOL both with and without fill bits by peeking up to 16 bits.
-fn is_eol_ahead<E, R: Iterator<Item=Result<u8, E>>>(reader: &ByteReader<R>) -> bool {
+fn is_eol_ahead<E, R: Iterator<Item = Result<u8, E>>>(reader: &ByteReader<R>) -> bool {
     // Check without fill bits: exactly 000000000001
     if reader.peek(EOL.len) == Some(EOL.data) {
         return true;
@@ -158,7 +158,7 @@ fn is_eol_ahead<E, R: Iterator<Item=Result<u8, E>>>(reader: &ByteReader<R>) -> b
 
 /// Skip zero fill bits and consume the EOL marker (000000000001).
 /// Returns Err if no valid EOL is found.
-fn skip_to_eol<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>>(
+fn skip_to_eol<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>>(
     reader: &mut ByteReader<R>,
 ) -> Result<(), DecodeError<E>> {
     // Skip zero fill bits (used for byte alignment in Group3Options bit 2).

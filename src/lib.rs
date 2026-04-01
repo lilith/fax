@@ -191,7 +191,11 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
         }
         if self.valid >= bits {
             let shift = self.valid - bits;
-            let mask = if bits >= 16 { u16::MAX } else { (1u16 << bits) - 1 };
+            let mask = if bits >= 16 {
+                u16::MAX
+            } else {
+                (1u16 << bits) - 1
+            };
             let out = (self.partial >> shift) as u16 & mask;
             Some(out)
         } else {
@@ -266,11 +270,11 @@ mod tests {
         let mut stream_bits = Vec::new();
 
         // Initial EOL
-        let eol: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,1];
+        let eol: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
         stream_bits.extend_from_slice(eol);
 
         // Line 1: white run of 8 pixels = 10011
-        stream_bits.extend_from_slice(&[1,0,0,1,1]);
+        stream_bits.extend_from_slice(&[1, 0, 0, 1, 1]);
         // EOL after line 1
         stream_bits.extend_from_slice(eol);
 
@@ -300,15 +304,15 @@ mod tests {
         // white(4) = 1011, black(4) = 011, white(8) = 10011
         let mut stream_bits = Vec::new();
 
-        let eol: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,1];
+        let eol: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
         // Initial EOL
         stream_bits.extend_from_slice(eol);
 
         // Line: white(4)=1011, black(4)=011, white(8)=10011
-        stream_bits.extend_from_slice(&[1,0,1,1]); // white 4
-        stream_bits.extend_from_slice(&[0,1,1]); // black 4
-        stream_bits.extend_from_slice(&[1,0,0,1,1]); // white 8
+        stream_bits.extend_from_slice(&[1, 0, 1, 1]); // white 4
+        stream_bits.extend_from_slice(&[0, 1, 1]); // black 4
+        stream_bits.extend_from_slice(&[1, 0, 0, 1, 1]); // white 8
         stream_bits.extend_from_slice(eol);
 
         // RTC
@@ -333,21 +337,21 @@ mod tests {
         // Fill bits pad with zeros to byte-align before the EOL.
         let mut stream_bits = Vec::new();
 
-        let eol: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,1];
+        let eol: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
         // Initial EOL with 4 fill bits (total 16 bits = 2 bytes)
-        stream_bits.extend_from_slice(&[0,0,0,0]); // fill
+        stream_bits.extend_from_slice(&[0, 0, 0, 0]); // fill
         stream_bits.extend_from_slice(eol);
 
         // Line: white(8) = 10011 (5 bits)
-        stream_bits.extend_from_slice(&[1,0,0,1,1]);
+        stream_bits.extend_from_slice(&[1, 0, 0, 1, 1]);
         // EOL with 7 fill bits (5 + 7 + 12 = 24 bits = 3 bytes)
-        stream_bits.extend_from_slice(&[0,0,0,0,0,0,0]); // fill
+        stream_bits.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]); // fill
         stream_bits.extend_from_slice(eol);
 
         // RTC with fill bits before each
         for _ in 0..5 {
-            stream_bits.extend_from_slice(&[0,0,0,0]); // fill
+            stream_bits.extend_from_slice(&[0, 0, 0, 0]); // fill
             stream_bits.extend_from_slice(eol);
         }
 
@@ -364,22 +368,22 @@ mod tests {
     #[test]
     fn test_group3_multiple_lines() {
         let mut stream_bits = Vec::new();
-        let eol: &[u8] = &[0,0,0,0,0,0,0,0,0,0,0,1];
+        let eol: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
         // Initial EOL
         stream_bits.extend_from_slice(eol);
 
         // Line 1: white(4)=1011
-        stream_bits.extend_from_slice(&[1,0,1,1]);
+        stream_bits.extend_from_slice(&[1, 0, 1, 1]);
         stream_bits.extend_from_slice(eol);
 
         // Line 2: white(8)=10011
-        stream_bits.extend_from_slice(&[1,0,0,1,1]);
+        stream_bits.extend_from_slice(&[1, 0, 0, 1, 1]);
         stream_bits.extend_from_slice(eol);
 
         // Line 3: white(2)=0111, black(3)=10
-        stream_bits.extend_from_slice(&[0,1,1,1]); // white 2
-        stream_bits.extend_from_slice(&[1,0]); // black 3
+        stream_bits.extend_from_slice(&[0, 1, 1, 1]); // white 2
+        stream_bits.extend_from_slice(&[1, 0]); // black 3
         stream_bits.extend_from_slice(eol);
 
         // RTC
