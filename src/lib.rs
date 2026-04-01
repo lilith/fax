@@ -186,7 +186,9 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
     type Error = E;
 
     fn peek(&self, bits: u8) -> Option<u16> {
-        assert!(bits <= 16);
+        if bits > 16 {
+            return None;
+        }
         if self.valid >= bits {
             let shift = self.valid - bits;
             let out = (self.partial >> shift) as u16 & ((1u32 << bits) - 1) as u16;
@@ -196,7 +198,7 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
         }
     }
     fn consume(&mut self, bits: u8) -> Result<(), E> {
-        self.valid -= bits;
+        self.valid = self.valid.saturating_sub(bits);
         self.fill()
     }
     fn bits_to_byte_boundary(&self) -> u8 {
