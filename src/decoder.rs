@@ -94,7 +94,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
     }
     pub fn advance(&mut self) -> Result<DecodeStatus, DecodeError<E>> {
         self.current.clear();
-        let mut a0 = 0;
+        let mut a0: u16 = 0;
         let mut color = Color::White;
         loop {
             // Check for EOL before attempting to parse a run-length code.
@@ -105,7 +105,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
             }
             match colored(color, &mut self.reader) {
                 Some(p) => {
-                    a0 += p;
+                    a0 = a0.checked_add(p).ok_or(DecodeError::Invalid)?;
                     self.current.push(a0);
                     color = !color;
                 }
@@ -266,10 +266,11 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     let b1 = transitions
                         .next_color(a0, !color, start_of_row)
                         .unwrap_or(self.width);
-                    let a1 = (b1 as i16 + delta as i16) as u16;
-                    if a1 >= self.width {
+                    let a1_i32 = b1 as i32 + delta as i32;
+                    if a1_i32 < 0 || a1_i32 >= self.width as i32 {
                         break;
                     }
+                    let a1 = a1_i32 as u16;
                     //debug!("transition to {:?} at {}", !color, a1);
                     self.current.push(a1);
                     color = !color;
@@ -281,8 +282,8 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                 Mode::Horizontal => {
                     let a0a1 = colored(color, &mut self.reader).ok_or(DecodeError::Invalid)?;
                     let a1a2 = colored(!color, &mut self.reader).ok_or(DecodeError::Invalid)?;
-                    let a1 = a0 + a0a1;
-                    let a2 = a1 + a1a2;
+                    let a1 = a0.checked_add(a0a1).ok_or(DecodeError::Invalid)?;
+                    let a2 = a1.checked_add(a1a2).ok_or(DecodeError::Invalid)?;
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
 
                     self.current.push(a1);
@@ -293,10 +294,8 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     a0 = a2;
                 }
                 Mode::Extension => {
-                    let xxx = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
-                    // debug!("extension: {:03b}", xxx);
-                    self.reader.consume(3);
-                    // debug!("{:?}", current);
+                    let _ext = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
+                    let _ = self.reader.consume(3);
                     return Err(DecodeError::Unsupported);
                 }
                 Mode::EOF => return Ok(DecodeStatus::End),
