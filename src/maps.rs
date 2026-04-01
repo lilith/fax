@@ -10,13 +10,13 @@ impl<T: Copy> Entry<T> {
     fn find(&self, reader: &mut impl BitReader) -> Option<T> {
         match *self {
             Entry::Value(val, len) => {
-                reader.consume(len);
+                reader.consume(len).ok()?;
                 Some(val)
             }
             Entry::Leaf(width, lut) => {
                 let index = reader.peek(width)?;
                 let (val, len) = lut[index as usize]?;
-                reader.consume(len);
+                reader.consume(len).ok()?;
                 Some(val)
             }
             Entry::Prefix(width, lut) => {
@@ -24,11 +24,11 @@ impl<T: Copy> Entry<T> {
                 let entry = &lut[index as usize];
                 match *entry {
                     Entry::Value(val, len) => {
-                        reader.consume(len);
+                        reader.consume(len).ok()?;
                         Some(val)
                     }
                     _ => {
-                        reader.consume(width);
+                        reader.consume(width).ok()?;
                         entry.find(reader)
                     }
                 }
