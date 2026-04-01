@@ -1,12 +1,12 @@
 use std::convert::Infallible;
 use std::io::{self, Bytes, Read};
 
+use crate::maps::{black, mode, white, Mode, EDFB_HALF, EOL};
 use crate::{BitReader, ByteReader, Color, Transitions};
-use crate::maps::{Mode, black, white, mode, EDFB_HALF, EOL};
-
 
 fn with_markup<D, R>(decoder: D, reader: &mut R) -> Option<u16>
-    where D: Fn(&mut R) -> Option<u16>
+where
+    D: Fn(&mut R) -> Option<u16>,
 {
     let mut sum = 0;
     while let Some(n) = decoder(reader) {
@@ -14,7 +14,7 @@ fn with_markup<D, R>(decoder: D, reader: &mut R) -> Option<u16>
         sum += n;
         if n < 64 {
             //debug!("= {}", sum);
-            return Some(sum)
+            return Some(sum);
         }
     }
     None
@@ -32,31 +32,30 @@ fn colored(current: Color, reader: &mut impl BitReader) -> Option<u16> {
 ///
 /// The width of the line/image has to be given in `width`.
 /// The iterator will produce exactly that many items.
-pub fn pels(line: &[u16], width: u16) -> impl Iterator<Item=Color> + '_ {
+pub fn pels(line: &[u16], width: u16) -> impl Iterator<Item = Color> + '_ {
     use std::iter::repeat;
     let mut color = Color::White;
     let mut last = 0;
-    let pad_color = if line.len() & 1 == 1 {
-        !color
-    } else { 
-        color
-    };
-    line.iter().flat_map(move |&p| {
-        let c = color;
-        color = !color;
-        let n = p.saturating_sub(last);
-        last = p;
-        repeat(c).take(n as usize)
-    }).chain(repeat(pad_color)).take(width as usize)
+    let pad_color = if line.len() & 1 == 1 { !color } else { color };
+    line.iter()
+        .flat_map(move |&p| {
+            let c = color;
+            color = !color;
+            let n = p.saturating_sub(last);
+            last = p;
+            repeat(c).take(n as usize)
+        })
+        .chain(repeat(pad_color))
+        .take(width as usize)
 }
 
 /// Decode a Group 3 encoded image.
-/// 
+///
 /// The callback `line_cb` is called for each decoded line.
 /// The argument is the list of positions of color change, starting with white.
-/// 
+///
 /// To obtain an iterator over the pixel colors, the `pels` function is provided.
-pub fn decode_g3(input: impl Iterator<Item=u8>, mut line_cb: impl FnMut(&[u16])) -> Option<()> {
+pub fn decode_g3(input: impl Iterator<Item = u8>, mut line_cb: impl FnMut(&[u16])) -> Option<()> {
     let reader = input.map(Result::<u8, Infallible>::Ok);
     let mut decoder = Group3Decoder::new(reader).ok()?;
 
@@ -82,17 +81,20 @@ pub struct Group3Decoder<R> {
     reader: ByteReader<R>,
     current: Vec<u16>,
 }
-impl<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>> Group3Decoder<R> {
+impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
     pub fn new(reader: R) -> Result<Self, DecodeError<E>> {
         let mut reader = ByteReader::new(reader).map_err(DecodeError::Reader)?;
         // Skip any fill bits (zeros) then consume the initial EOL marker.
         skip_to_eol(&mut reader).map_err(|_| DecodeError::Invalid)?;
 
-        Ok(Group3Decoder { reader, current: vec![] })
+        Ok(Group3Decoder {
+            reader,
+            current: vec![],
+        })
     }
     pub fn advance(&mut self) -> Result<DecodeStatus, DecodeError<E>> {
         self.current.clear();
-        let mut a0 = 0;
+        let mut a0: u16 = 0;
         let mut color = Color::White;
         loop {
             // Check for EOL before attempting to parse a run-length code.
@@ -103,7 +105,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>> Group3Decoder<R> {
             }
             match colored(color, &mut self.reader) {
                 Some(p) => {
-                    a0 += p;
+                    a0 = a0.checked_add(p).ok_or(DecodeError::Invalid)?;
                     self.current.push(a0);
                     color = !color;
                 }
@@ -114,11 +116,11 @@ impl<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>> Group3Decoder<R> {
         skip_to_eol(&mut self.reader).map_err(|_| DecodeError::Invalid)?;
 
         // Check for end-of-document: 6 consecutive EOLs (5 more after the one above).
-        for _ in 0 .. 5 {
+        for _ in 0..5 {
             if is_eol_ahead(&self.reader) {
                 skip_to_eol(&mut self.reader).map_err(|_| DecodeError::Invalid)?;
             } else {
-                return Ok(DecodeStatus::Incomplete)
+                return Ok(DecodeStatus::Incomplete);
             }
         }
 
@@ -173,20 +175,25 @@ fn skip_to_eol<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>>(
 }
 
 /// Decode a Group 4 Image
-/// 
+///
 /// - `width` is the width of the image.
 /// - The callback `line_cb` is called for each decoded line.
 ///   The argument is the list of positions of color change, starting with white.
-/// 
+///
 ///   If `height` is specified, at most that many lines will be decoded,
 ///   otherwise data is decoded until the end-of-block marker (or end of data).
-/// 
+///
 /// To obtain an iterator over the pixel colors, the `pels` function is provided.
-pub fn decode_g4(input: impl Iterator<Item=u8>, width: u16, height: Option<u16>, mut line_cb: impl FnMut(&[u16])) -> Option<()> {
+pub fn decode_g4(
+    input: impl Iterator<Item = u8>,
+    width: u16,
+    height: Option<u16>,
+    mut line_cb: impl FnMut(&[u16]),
+) -> Option<()> {
     let reader = input.map(Result::<u8, Infallible>::Ok);
     let mut decoder = Group4Decoder::new(reader, width).ok()?;
 
-    for y in 0 .. height.unwrap_or(u16::MAX) {
+    for y in 0..height.unwrap_or(u16::MAX) {
         let status = decoder.advance().ok()?;
         if status == DecodeStatus::End {
             return Some(());
@@ -207,22 +214,21 @@ impl<E> std::fmt::Display for DecodeError<E> {
         write!(f, "Decode Error")
     }
 }
-impl<E: std::error::Error> std::error::Error for DecodeError<E> {
-}
+impl<E: std::error::Error> std::error::Error for DecodeError<E> {}
 
 pub struct Group4Decoder<R> {
     reader: ByteReader<R>,
     reference: Vec<u16>,
     current: Vec<u16>,
-    width: u16
+    width: u16,
 }
-impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
+impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
     pub fn new(reader: R, width: u16) -> Result<Self, E> {
         Ok(Group4Decoder {
             reader: ByteReader::new(reader)?,
             reference: Vec::new(),
             current: Vec::new(),
-            width
+            width,
         })
     }
     // when Complete::Complete is returned, there is no useful data in .transitions() or .line()
@@ -232,7 +238,7 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
         let mut color = Color::White;
         let mut start_of_row = true;
         //debug!("\n\nline {}", y);
-        
+
         loop {
             //reader.print_peek();
             let mode = match mode::decode(&mut self.reader) {
@@ -240,13 +246,15 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                 None => return Err(DecodeError::Invalid),
             };
             //debug!("  {:?}, color={:?}, a0={}", mode, color, a0);
-            
+
             match mode {
                 Mode::Pass => {
                     if start_of_row && color == Color::White {
                         transitions.pos += 1;
                     } else {
-                        transitions.next_color(a0, !color, false).ok_or(DecodeError::Invalid)?;
+                        transitions
+                            .next_color(a0, !color, false)
+                            .ok_or(DecodeError::Invalid)?;
                     }
                     //debug!("b1={}", b1);
                     if let Some(b2) = transitions.next() {
@@ -255,11 +263,14 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                     }
                 }
                 Mode::Vertical(delta) => {
-                    let b1 = transitions.next_color(a0, !color, start_of_row).unwrap_or(self.width);
-                    let a1 = (b1 as i16 + delta as i16) as u16;
-                    if a1 >= self.width {
+                    let b1 = transitions
+                        .next_color(a0, !color, start_of_row)
+                        .unwrap_or(self.width);
+                    let a1_i32 = b1 as i32 + delta as i32;
+                    if a1_i32 < 0 || a1_i32 >= self.width as i32 {
                         break;
                     }
+                    let a1 = a1_i32 as u16;
                     //debug!("transition to {:?} at {}", !color, a1);
                     self.current.push(a1);
                     color = !color;
@@ -271,10 +282,10 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                 Mode::Horizontal => {
                     let a0a1 = colored(color, &mut self.reader).ok_or(DecodeError::Invalid)?;
                     let a1a2 = colored(!color, &mut self.reader).ok_or(DecodeError::Invalid)?;
-                    let a1 = a0 + a0a1;
-                    let a2 = a1 + a1a2;
+                    let a1 = a0.checked_add(a0a1).ok_or(DecodeError::Invalid)?;
+                    let a2 = a1.checked_add(a1a2).ok_or(DecodeError::Invalid)?;
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
-                    
+
                     self.current.push(a1);
                     if a2 >= self.width {
                         break;
@@ -283,10 +294,8 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                     a0 = a2;
                 }
                 Mode::Extension => {
-                    let xxx = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
-                    // debug!("extension: {:03b}", xxx);
-                    self.reader.consume(3);
-                    // debug!("{:?}", current);
+                    let _ext = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
+                    let _ = self.reader.consume(3);
                     return Err(DecodeError::Unsupported);
                 }
                 Mode::EOF => return Ok(DecodeStatus::End),
@@ -310,13 +319,16 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
     }
 
     pub fn line(&self) -> Line {
-        Line { transitions: &self.reference, width: self.width }
+        Line {
+            transitions: &self.reference,
+            width: self.width,
+        }
     }
 }
 
 pub struct Line<'a> {
     pub transitions: &'a [u16],
-    pub width: u16
+    pub width: u16,
 }
 impl<'a> Line<'a> {
     pub fn pels(&self) -> impl Iterator<Item = Color> + 'a {
