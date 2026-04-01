@@ -335,3 +335,43 @@ impl<'a> Line<'a> {
         pels(&self.transitions, self.width)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Group4 decoder should not panic on random/adversarial data
+    #[test]
+    fn g4_adversarial_no_panic() {
+        // Bytes designed to produce large run lengths that would overflow u16
+        let data: Vec<u8> = vec![0xFF; 256];
+        let mut lines = Vec::new();
+        // Should not panic — may return None (invalid data)
+        let _ = decode_g4(data.into_iter(), 100, Some(10), |line| {
+            lines.push(line.to_vec());
+        });
+    }
+
+    /// Group4 decoder should handle width > 32767 without i16 overflow
+    #[test]
+    fn g4_large_width_no_overflow() {
+        // All zeros — will decode as pass/vertical modes that reference width
+        let data: Vec<u8> = vec![0x00; 512];
+        let _ = decode_g4(data.into_iter(), 40000, Some(1), |_line| {});
+    }
+
+    /// Group3 decoder should not panic on adversarial data with large run lengths
+    #[test]
+    fn g3_adversarial_no_panic() {
+        // Random bytes — should not panic regardless of content
+        let data: Vec<u8> = (0..512).map(|i| (i * 37 + 13) as u8).collect();
+        let _ = decode_g3(data.into_iter(), |_line| {});
+    }
+
+    /// Group4 decoder: zero-width image should not loop forever
+    #[test]
+    fn g4_zero_width() {
+        let data: Vec<u8> = vec![0x00; 64];
+        let _ = decode_g4(data.into_iter(), 0, Some(1), |_line| {});
+    }
+}
