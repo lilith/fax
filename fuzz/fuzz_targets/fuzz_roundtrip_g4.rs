@@ -2,8 +2,8 @@
 
 use libfuzzer_sys::fuzz_target;
 
-/// Roundtrip fuzzer: generate transitions, encode as G4, decode back.
-/// Verifies encode/decode consistency.
+// Roundtrip fuzzer: generate transitions, encode as G4, decode back.
+// Verifies encode/decode consistency.
 fuzz_target!(|data: &[u8]| {
     if data.len() < 3 {
         return;
@@ -16,17 +16,24 @@ fuzz_target!(|data: &[u8]| {
     let mut pos = 0u16;
     for &b in remaining {
         let step = (b as u16).min(width - pos);
-        if step == 0 { break; }
+        if step == 0 {
+            break;
+        }
         pos = pos.saturating_add(step);
-        if pos > width { break; }
+        if pos > width {
+            break;
+        }
         transitions.push(pos);
-        if pos >= width { break; }
+        if pos >= width {
+            break;
+        }
     }
 
-    // Encode
-    let mut writer = fax::VecWriter::new();
-    let mut encoder = fax::Encoder::new(&mut writer);
-    let _ = encoder.encode_line(&transitions, width);
+    // Convert transitions to pixel colors, then encode
+    let pels = fax::decoder::pels(&transitions, width);
+    let writer = fax::VecWriter::new();
+    let mut encoder = fax::encoder::Encoder::new(writer);
+    let _ = encoder.encode_line(pels, width);
     let encoded = match encoder.finish() {
         Ok(w) => w.finish(),
         Err(_) => return,
@@ -34,7 +41,7 @@ fuzz_target!(|data: &[u8]| {
 
     // Decode back
     let mut decoded_lines = Vec::new();
-    let _ = fax::decode_g4(encoded.into_iter(), width, Some(1), |line| {
+    let _ = fax::decoder::decode_g4(encoded.into_iter(), width, Some(1), |line| {
         decoded_lines.push(line.to_vec());
     });
 
