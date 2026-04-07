@@ -391,4 +391,27 @@ mod tests {
         let result = decode_g3(data.into_iter(), |_| {});
         let _ = result; // must not panic
     }
+
+    /// Roundtrip: transitions [3, 4] at width=4 should survive encode→decode.
+    /// Bug: decoder drops the final transition when it falls exactly at width.
+    #[test]
+    #[ignore] // Known bug: decoder drops final transition at width boundary
+    fn g4_roundtrip_width_boundary_transition() {
+        let transitions = vec![3u16, 4];
+        let width = 4u16;
+        let pels = super::pels(&transitions, width);
+        let writer = crate::VecWriter::new();
+        let mut encoder = crate::encoder::Encoder::new(writer);
+        let _ = encoder.encode_line(pels, width);
+        let encoded = encoder.finish().unwrap().finish();
+        let mut decoded = Vec::new();
+        let _ = decode_g4(encoded.into_iter(), width, Some(1), |line| {
+            decoded.push(line.to_vec());
+        });
+        assert_eq!(
+            decoded.first().map(|v| v.as_slice()),
+            Some(transitions.as_slice()),
+            "transitions at width boundary should roundtrip"
+        );
+    }
 }
