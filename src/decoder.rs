@@ -340,38 +340,55 @@ impl<'a> Line<'a> {
 mod tests {
     use super::*;
 
-    /// Group4 decoder should not panic on random/adversarial data
+    /// Fuzz artifact: 5 bytes that triggered checked_add overflow in G4
+    /// horizontal mode before the fix. The overflow is now caught by
+    /// checked_add and the decoder recovers, producing partial output.
     #[test]
-    fn g4_adversarial_no_panic() {
-        // Bytes designed to produce large run lengths that would overflow u16
-        let data: Vec<u8> = vec![0xFF; 256];
-        let mut lines = Vec::new();
-        // Should not panic — may return None (invalid data)
-        let _ = decode_g4(data.into_iter(), 100, Some(10), |line| {
-            lines.push(line.to_vec());
-        });
+    fn g4_fuzz_crash_horizontal_overflow() {
+        let data: Vec<u8> = vec![0xe8, 0x05, 0x00, 0x00, 0x00];
+        let mut lines = 0u32;
+        let result = decode_g4(data.into_iter(), 100, Some(10), |_| { lines += 1; });
+        // Decoder recovers from the overflow and produces some lines.
+        // The key assertion: no panic. Before the fix this was an
+        // "attempt to add with overflow" panic.
+        assert!(result.is_some(), "decoder should recover from caught overflow");
+        assert!(lines <= 10, "should not exceed requested height");
     }
 
-    /// Group4 decoder should handle width > 32767 without i16 overflow
+    /// Fuzz artifact: 119 bytes that triggered G3 run-length overflow.
+    /// After the fix, checked_add returns DecodeError::Invalid and the
+    /// decoder returns None.
+    #[test]
+    fn g3_fuzz_crash_run_length_overflow() {
+        let mut data = vec![0x10, 0x10, 0x00, 0x04, 0x00, 0x10, 0x00, 0xb3,
+                            0x00, 0x00, 0x10, 0x00, 0xb3, 0x00, 0x10, 0x10];
+        data.extend_from_slice(&[0xce; 103]);
+        let result = decode_g3(data.into_iter(), |_| {});
+        assert_eq!(result, None, "corrupt G3 data should return None");
+    }
+
+    /// Width > 32767 used to overflow i16 in vertical mode delta.
+    /// Now uses i32 — must not panic.
     #[test]
     fn g4_large_width_no_overflow() {
-        // All zeros — will decode as pass/vertical modes that reference width
         let data: Vec<u8> = vec![0x00; 512];
-        let _ = decode_g4(data.into_iter(), 40000, Some(1), |_line| {});
+        let result = decode_g4(data.into_iter(), 40000, Some(1), |_| {});
+        let _ = result; // must not panic
     }
 
-    /// Group3 decoder should not panic on adversarial data with large run lengths
+    /// Zero-width image: degenerate, must not loop forever or panic.
     #[test]
-    fn g3_adversarial_no_panic() {
-        // Random bytes — should not panic regardless of content
-        let data: Vec<u8> = (0..512).map(|i| (i * 37 + 13) as u8).collect();
-        let _ = decode_g3(data.into_iter(), |_line| {});
-    }
-
-    /// Group4 decoder: zero-width image should not loop forever
-    #[test]
-    fn g4_zero_width() {
+    fn g4_zero_width_no_panic() {
         let data: Vec<u8> = vec![0x00; 64];
-        let _ = decode_g4(data.into_iter(), 0, Some(1), |_line| {});
+        let result = decode_g4(data.into_iter(), 0, Some(1), |_| {});
+        let _ = result; // must not panic
+    }
+
+    /// Random bytes fed to G3 decoder — must not panic regardless of content.
+    #[test]
+    fn g3_random_bytes_no_panic() {
+        let data: Vec<u8> = (0..512).map(|i| (i * 37 + 13) as u8).collect();
+        let result = decode_g3(data.into_iter(), |_| {});
+        let _ = result; // must not panic
     }
 }
