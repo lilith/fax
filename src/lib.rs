@@ -191,7 +191,11 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
         }
         if self.valid >= bits {
             let shift = self.valid - bits;
-            let mask = if bits >= 16 { u16::MAX } else { (1u16 << bits) - 1 };
+            let mask = if bits >= 16 {
+                u16::MAX
+            } else {
+                (1u16 << bits) - 1
+            };
             let out = (self.partial >> shift) as u16 & mask;
             Some(out)
         } else {

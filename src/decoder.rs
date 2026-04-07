@@ -267,7 +267,7 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                         .next_color(a0, !color, start_of_row)
                         .unwrap_or(self.width);
                     let a1_i32 = b1 as i32 + delta as i32;
-                    if a1_i32 < 0 || a1_i32 >= self.width as i32 {
+                    if a1_i32 < 0 || a1_i32 > self.width as i32 {
                         break;
                     }
                     let a1 = a1_i32 as u16;
@@ -287,7 +287,7 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
 
                     self.current.push(a1);
-                    if a2 >= self.width {
+                    if a2 > self.width {
                         break;
                     }
                     self.current.push(a2);
@@ -347,11 +347,16 @@ mod tests {
     fn g4_fuzz_crash_horizontal_overflow() {
         let data: Vec<u8> = vec![0xe8, 0x05, 0x00, 0x00, 0x00];
         let mut lines = 0u32;
-        let result = decode_g4(data.into_iter(), 100, Some(10), |_| { lines += 1; });
+        let result = decode_g4(data.into_iter(), 100, Some(10), |_| {
+            lines += 1;
+        });
         // Decoder recovers from the overflow and produces some lines.
         // The key assertion: no panic. Before the fix this was an
         // "attempt to add with overflow" panic.
-        assert!(result.is_some(), "decoder should recover from caught overflow");
+        assert!(
+            result.is_some(),
+            "decoder should recover from caught overflow"
+        );
         assert!(lines <= 10, "should not exceed requested height");
     }
 
@@ -360,8 +365,10 @@ mod tests {
     /// decoder returns None.
     #[test]
     fn g3_fuzz_crash_run_length_overflow() {
-        let mut data = vec![0x10, 0x10, 0x00, 0x04, 0x00, 0x10, 0x00, 0xb3,
-                            0x00, 0x00, 0x10, 0x00, 0xb3, 0x00, 0x10, 0x10];
+        let mut data = vec![
+            0x10, 0x10, 0x00, 0x04, 0x00, 0x10, 0x00, 0xb3, 0x00, 0x00, 0x10, 0x00, 0xb3, 0x00,
+            0x10, 0x10,
+        ];
         data.extend_from_slice(&[0xce; 103]);
         let result = decode_g3(data.into_iter(), |_| {});
         assert_eq!(result, None, "corrupt G3 data should return None");
@@ -395,7 +402,6 @@ mod tests {
     /// Roundtrip: transitions [3, 4] at width=4 should survive encode→decode.
     /// Bug: decoder drops the final transition when it falls exactly at width.
     #[test]
-    #[ignore] // Known bug: decoder drops final transition at width boundary
     fn g4_roundtrip_width_boundary_transition() {
         let transitions = vec![3u16, 4];
         let width = 4u16;
