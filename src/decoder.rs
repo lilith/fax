@@ -8,10 +8,10 @@ use crate::maps::{Mode, black, white, mode, EDFB_HALF, EOL};
 fn with_markup<D, R>(decoder: D, reader: &mut R) -> Option<u16>
     where D: Fn(&mut R) -> Option<u16>
 {
-    let mut sum = 0;
+    let mut sum: u16 = 0;
     while let Some(n) = decoder(reader) {
         //print!("{} ", n);
-        sum += n;
+        sum = sum.saturating_add(n);
         if n < 64 {
             //debug!("= {}", sum);
             return Some(sum)
@@ -92,7 +92,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>> Group3Decoder<R> {
     }
     pub fn advance(&mut self) -> Result<DecodeStatus, DecodeError<E>> {
         self.current.clear();
-        let mut a0 = 0;
+        let mut a0: u16 = 0;
         let mut color = Color::White;
         loop {
             // Check for EOL before attempting to parse a run-length code.
@@ -103,7 +103,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item=Result<u8, E>>> Group3Decoder<R> {
             }
             match colored(color, &mut self.reader) {
                 Some(p) => {
-                    a0 += p;
+                    a0 = a0.saturating_add(p);
                     self.current.push(a0);
                     color = !color;
                 }
@@ -256,7 +256,7 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                 }
                 Mode::Vertical(delta) => {
                     let b1 = transitions.next_color(a0, !color, start_of_row).unwrap_or(self.width);
-                    let a1 = (b1 as i16 + delta as i16) as u16;
+                    let a1 = (b1 as i16).saturating_add(delta as i16).max(0i16) as u16;
                     if a1 >= self.width {
                         break;
                     }
@@ -271,8 +271,8 @@ impl<E, R: Iterator<Item=Result<u8, E>>> Group4Decoder<R> {
                 Mode::Horizontal => {
                     let a0a1 = colored(color, &mut self.reader).ok_or(DecodeError::Invalid)?;
                     let a1a2 = colored(!color, &mut self.reader).ok_or(DecodeError::Invalid)?;
-                    let a1 = a0 + a0a1;
-                    let a2 = a1 + a1a2;
+                    let a1 = a0.saturating_add(a0a1);
+                    let a2 = a1.saturating_add(a1a2);
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
                     
                     self.current.push(a1);

@@ -181,7 +181,7 @@ impl<E, R: Iterator<Item=Result<u8, E>>> BitReader for ByteReader<R> {
         }
     }
     fn consume(&mut self, bits: u8) -> Result<(), E> {
-        self.valid -= bits;
+        self.valid = self.valid.saturating_sub(bits);
         self.fill()
     }
     fn bits_to_byte_boundary(&self) -> u8 {
