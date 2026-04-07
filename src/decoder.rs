@@ -8,10 +8,10 @@ fn with_markup<D, R>(decoder: D, reader: &mut R) -> Option<u16>
 where
     D: Fn(&mut R) -> Option<u16>,
 {
-    let mut sum = 0;
+    let mut sum: u16 = 0;
     while let Some(n) = decoder(reader) {
         //print!("{} ", n);
-        sum += n;
+        sum = sum.checked_add(n)?;
         if n < 64 {
             //debug!("= {}", sum);
             return Some(sum);
