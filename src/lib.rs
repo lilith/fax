@@ -186,17 +186,24 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
     type Error = E;
 
     fn peek(&self, bits: u8) -> Option<u16> {
-        assert!(bits <= 16);
+        if bits > 16 {
+            return None;
+        }
         if self.valid >= bits {
             let shift = self.valid - bits;
-            let out = (self.partial >> shift) as u16 & ((1u32 << bits) - 1) as u16;
+            let mask = if bits >= 16 {
+                u16::MAX
+            } else {
+                (1u16 << bits) - 1
+            };
+            let out = (self.partial >> shift) as u16 & mask;
             Some(out)
         } else {
             None
         }
     }
     fn consume(&mut self, bits: u8) -> Result<(), E> {
-        self.valid -= bits;
+        self.valid = self.valid.saturating_sub(bits);
         self.fill()
     }
     fn bits_to_byte_boundary(&self) -> u8 {
@@ -208,6 +215,25 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
 fn test_bits() {
     let mut bits = slice_reader(&[0b0000_1101, 0b1010_0000]);
     assert_eq!(maps::black::decode(&mut bits), Some(42));
+}
+
+#[test]
+fn test_peek_over_16_returns_none() {
+    let bits = slice_reader(&[0xFF, 0xFF, 0xFF]);
+    // peek(17) should return None, not panic
+    assert_eq!(bits.peek(17), None);
+    assert_eq!(bits.peek(255), None);
+    // peek(16) should still work
+    assert!(bits.peek(16).is_some());
+}
+
+#[test]
+fn test_consume_more_than_valid_saturates() {
+    let mut bits = slice_reader(&[0xAB]);
+    // consume more bits than available — should not panic
+    let _ = bits.consume(200);
+    // after saturating to 0, peek should return None for any nonzero request
+    assert_eq!(bits.peek(1), None);
 }
 
 #[cfg(test)]
@@ -301,7 +327,7 @@ mod tests {
         });
 
         assert_eq!(lines.len(), 1);
-        // Transitions: white(4) → position 4, black(4) → position 8, white(8) → position 16
+        // Transitions: white(4) -> position 4, black(4) -> position 8, white(8) -> position 16
         assert_eq!(lines[0], vec![4, 8, 16]);
     }
 

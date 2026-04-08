@@ -8,10 +8,10 @@ fn with_markup<D, R>(decoder: D, reader: &mut R) -> Option<u16>
 where
     D: Fn(&mut R) -> Option<u16>,
 {
-    let mut sum = 0;
+    let mut sum: u16 = 0;
     while let Some(n) = decoder(reader) {
         //print!("{} ", n);
-        sum += n;
+        sum = sum.checked_add(n)?;
         if n < 64 {
             //debug!("= {}", sum);
             return Some(sum);
@@ -94,7 +94,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
     }
     pub fn advance(&mut self) -> Result<DecodeStatus, DecodeError<E>> {
         self.current.clear();
-        let mut a0 = 0;
+        let mut a0: u16 = 0;
         let mut color = Color::White;
         loop {
             // Check for EOL before attempting to parse a run-length code.
@@ -105,7 +105,7 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
             }
             match colored(color, &mut self.reader) {
                 Some(p) => {
-                    a0 += p;
+                    a0 = a0.checked_add(p).ok_or(DecodeError::Invalid)?;
                     self.current.push(a0);
                     color = !color;
                 }
@@ -266,12 +266,21 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     let b1 = transitions
                         .next_color(a0, !color, start_of_row)
                         .unwrap_or(self.width);
-                    let a1 = (b1 as i16 + delta as i16) as u16;
-                    if a1 >= self.width {
+                    let a1_i32 = b1 as i32 + delta as i32;
+                    if a1_i32 < 0 || a1_i32 > self.width as i32 {
                         break;
                     }
+                    let a1 = a1_i32 as u16;
                     //debug!("transition to {:?} at {}", !color, a1);
-                    self.current.push(a1);
+                    // Canonical form: only store transitions strictly less
+                    // than width. A transition at width is the implicit
+                    // end-of-line and is not a color change. This matches
+                    // the encoder's `self.current` representation (see
+                    // encoder.rs — it only pushes values yielded by pels,
+                    // which are always in [0, width-1]).
+                    if a1 < self.width {
+                        self.current.push(a1);
+                    }
                     color = !color;
                     a0 = a1;
                     if delta < 0 {
@@ -281,11 +290,15 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                 Mode::Horizontal => {
                     let a0a1 = colored(color, &mut self.reader).ok_or(DecodeError::Invalid)?;
                     let a1a2 = colored(!color, &mut self.reader).ok_or(DecodeError::Invalid)?;
-                    let a1 = a0 + a0a1;
-                    let a2 = a1 + a1a2;
+                    let a1 = a0.checked_add(a0a1).ok_or(DecodeError::Invalid)?;
+                    let a2 = a1.checked_add(a1a2).ok_or(DecodeError::Invalid)?;
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
 
-                    self.current.push(a1);
+                    // Same canonical form rule: never store a transition
+                    // at width (it's the end-of-line sentinel, not a flip).
+                    if a1 < self.width {
+                        self.current.push(a1);
+                    }
                     if a2 >= self.width {
                         break;
                     }
@@ -293,10 +306,8 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     a0 = a2;
                 }
                 Mode::Extension => {
-                    let xxx = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
-                    // debug!("extension: {:03b}", xxx);
-                    self.reader.consume(3);
-                    // debug!("{:?}", current);
+                    let _ext = self.reader.peek(3).ok_or(DecodeError::Invalid)?;
+                    let _ = self.reader.consume(3);
                     return Err(DecodeError::Unsupported);
                 }
                 Mode::EOF => return Ok(DecodeStatus::End),
@@ -334,5 +345,136 @@ pub struct Line<'a> {
 impl<'a> Line<'a> {
     pub fn pels(&self) -> impl Iterator<Item = Color> + 'a {
         pels(&self.transitions, self.width)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Fuzz artifact: 5 bytes that triggered checked_add overflow in G4
+    /// horizontal mode before the fix. The overflow is now caught by
+    /// checked_add and the decoder recovers, producing partial output.
+    #[test]
+    fn g4_fuzz_crash_horizontal_overflow() {
+        let data: Vec<u8> = vec![0xe8, 0x05, 0x00, 0x00, 0x00];
+        let mut lines = 0u32;
+        let result = decode_g4(data.into_iter(), 100, Some(10), |_| {
+            lines += 1;
+        });
+        // Decoder recovers from the overflow and produces some lines.
+        // The key assertion: no panic. Before the fix this was an
+        // "attempt to add with overflow" panic.
+        assert!(
+            result.is_some(),
+            "decoder should recover from caught overflow"
+        );
+        assert!(lines <= 10, "should not exceed requested height");
+    }
+
+    /// Fuzz artifact: 119 bytes that triggered G3 run-length overflow.
+    /// After the fix, checked_add returns DecodeError::Invalid and the
+    /// decoder returns None.
+    #[test]
+    fn g3_fuzz_crash_run_length_overflow() {
+        let mut data = vec![
+            0x10, 0x10, 0x00, 0x04, 0x00, 0x10, 0x00, 0xb3, 0x00, 0x00, 0x10, 0x00, 0xb3, 0x00,
+            0x10, 0x10,
+        ];
+        data.extend_from_slice(&[0xce; 103]);
+        let result = decode_g3(data.into_iter(), |_| {});
+        assert_eq!(result, None, "corrupt G3 data should return None");
+    }
+
+    /// Width > 32767 used to overflow i16 in vertical mode delta.
+    /// Now uses i32 — must not panic.
+    #[test]
+    fn g4_large_width_no_overflow() {
+        let data: Vec<u8> = vec![0x00; 512];
+        let result = decode_g4(data.into_iter(), 40000, Some(1), |_| {});
+        let _ = result; // must not panic
+    }
+
+    /// Zero-width image: degenerate, must not loop forever or panic.
+    #[test]
+    fn g4_zero_width_no_panic() {
+        let data: Vec<u8> = vec![0x00; 64];
+        let result = decode_g4(data.into_iter(), 0, Some(1), |_| {});
+        let _ = result; // must not panic
+    }
+
+    /// Random bytes fed to G3 decoder — must not panic regardless of content.
+    #[test]
+    fn g3_random_bytes_no_panic() {
+        let data: Vec<u8> = (0..512).map(|i| (i * 37 + 13) as u8).collect();
+        let result = decode_g3(data.into_iter(), |_| {});
+        let _ = result; // must not panic
+    }
+
+    /// Roundtrip: a line with a color change at width-1 should produce
+    /// the same pels after encode→decode. Note that transition lists are
+    /// NOT a canonical representation — e.g., `[3]` and `[3, 4]` both
+    /// represent "3 white + 1 black" at width=4. We compare pels (the
+    /// semantic form) rather than transition lists.
+    #[test]
+    fn g4_roundtrip_width_boundary_transition() {
+        let transitions = vec![3u16, 4];
+        let width = 4u16;
+        let input_pels: Vec<_> = super::pels(&transitions, width).collect();
+        let writer = crate::VecWriter::new();
+        let mut encoder = crate::encoder::Encoder::new(writer);
+        let _ = encoder.encode_line(input_pels.iter().copied(), width);
+        let encoded = encoder.finish().unwrap().finish();
+        let mut decoded = Vec::new();
+        let _ = decode_g4(encoded.into_iter(), width, Some(1), |line| {
+            decoded.push(line.to_vec());
+        });
+        let decoded_line = decoded.first().expect("decoded one line");
+        let output_pels: Vec<_> = super::pels(decoded_line, width).collect();
+        assert_eq!(
+            input_pels, output_pels,
+            "pels must roundtrip (decoded transitions: {:?})",
+            decoded_line
+        );
+    }
+
+    /// Single transition at arbitrary position should roundtrip cleanly.
+    /// Regression for the 23 "crash" artifacts surfaced by cargo fuzz cmin:
+    /// the decoder was producing non-canonical transition lists (appending
+    /// width sentinel), which the fuzz assertion flagged as mismatches.
+    #[test]
+    fn g4_roundtrip_canonical_form() {
+        for &(width, ref transitions) in &[
+            (10u16, vec![5]),
+            (2000, vec![10]),
+            (2000, vec![3, 51]),
+            (4, vec![3]),
+            (100, vec![50]),
+            (100, vec![1]),
+            (100, vec![99]),
+        ] {
+            let input_pels: Vec<_> = super::pels(transitions, width).collect();
+            let writer = crate::VecWriter::new();
+            let mut encoder = crate::encoder::Encoder::new(writer);
+            let _ = encoder.encode_line(input_pels.iter().copied(), width);
+            let encoded = encoder.finish().unwrap().finish();
+            let mut decoded = Vec::new();
+            let _ = decode_g4(encoded.into_iter(), width, Some(1), |line| {
+                decoded.push(line.to_vec());
+            });
+            let decoded_line = decoded.first().expect("decoded one line");
+            let output_pels: Vec<_> = super::pels(decoded_line, width).collect();
+            assert_eq!(
+                input_pels, output_pels,
+                "pels must roundtrip for width={width} transitions={transitions:?}, \
+                 got decoded transitions {decoded_line:?}"
+            );
+            // Canonical form: decoder must not append the width sentinel.
+            assert!(
+                decoded_line.iter().all(|&t| t < width),
+                "decoder produced non-canonical transition list {decoded_line:?} \
+                 (contains width={width}); transitions should all be < width"
+            );
+        }
     }
 }

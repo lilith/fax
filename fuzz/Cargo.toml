@@ -1,0 +1,7 @@
+
+[[bin]]
+name = "fuzz_roundtrip_g4"
+path = "fuzz_targets/fuzz_roundtrip_g4.rs"
+test = false
+doc = false
+bench = false
