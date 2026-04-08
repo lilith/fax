@@ -114,8 +114,8 @@ impl<W: BitWriter> Encoder<W> {
                             }
                             None => width,
                         };
-                        let a0a1 = a1 - a0;
-                        let a1a2 = a2 - a1;
+                        let a0a1 = a1.saturating_sub(a0);
+                        let a1a2 = a2.saturating_sub(a1);
                         debug!("  Horizontal({}, {}) color={color:?}", a0a1, a1a2);
                         let bits = mode::encode(Mode::Horizontal).unwrap();
                         writer.write(bits)?;
