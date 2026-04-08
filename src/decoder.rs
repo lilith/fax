@@ -272,7 +272,15 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     }
                     let a1 = a1_i32 as u16;
                     //debug!("transition to {:?} at {}", !color, a1);
-                    self.current.push(a1);
+                    // Canonical form: only store transitions strictly less
+                    // than width. A transition at width is the implicit
+                    // end-of-line and is not a color change. This matches
+                    // the encoder's `self.current` representation (see
+                    // encoder.rs — it only pushes values yielded by pels,
+                    // which are always in [0, width-1]).
+                    if a1 < self.width {
+                        self.current.push(a1);
+                    }
                     color = !color;
                     a0 = a1;
                     if delta < 0 {
@@ -286,8 +294,12 @@ impl<E, R: Iterator<Item = Result<u8, E>>> Group4Decoder<R> {
                     let a2 = a1.checked_add(a1a2).ok_or(DecodeError::Invalid)?;
                     //debug!("a0a1={}, a1a2={}, a1={}, a2={}", a0a1, a1a2, a1, a2);
 
-                    self.current.push(a1);
-                    if a2 > self.width {
+                    // Same canonical form rule: never store a transition
+                    // at width (it's the end-of-line sentinel, not a flip).
+                    if a1 < self.width {
+                        self.current.push(a1);
+                    }
+                    if a2 >= self.width {
                         break;
                     }
                     self.current.push(a2);
@@ -399,25 +411,70 @@ mod tests {
         let _ = result; // must not panic
     }
 
-    /// Roundtrip: transitions [3, 4] at width=4 should survive encode→decode.
-    /// Bug: decoder drops the final transition when it falls exactly at width.
+    /// Roundtrip: a line with a color change at width-1 should produce
+    /// the same pels after encode→decode. Note that transition lists are
+    /// NOT a canonical representation — e.g., `[3]` and `[3, 4]` both
+    /// represent "3 white + 1 black" at width=4. We compare pels (the
+    /// semantic form) rather than transition lists.
     #[test]
     fn g4_roundtrip_width_boundary_transition() {
         let transitions = vec![3u16, 4];
         let width = 4u16;
-        let pels = super::pels(&transitions, width);
+        let input_pels: Vec<_> = super::pels(&transitions, width).collect();
         let writer = crate::VecWriter::new();
         let mut encoder = crate::encoder::Encoder::new(writer);
-        let _ = encoder.encode_line(pels, width);
+        let _ = encoder.encode_line(input_pels.iter().copied(), width);
         let encoded = encoder.finish().unwrap().finish();
         let mut decoded = Vec::new();
         let _ = decode_g4(encoded.into_iter(), width, Some(1), |line| {
             decoded.push(line.to_vec());
         });
+        let decoded_line = decoded.first().expect("decoded one line");
+        let output_pels: Vec<_> = super::pels(decoded_line, width).collect();
         assert_eq!(
-            decoded.first().map(|v| v.as_slice()),
-            Some(transitions.as_slice()),
-            "transitions at width boundary should roundtrip"
+            input_pels, output_pels,
+            "pels must roundtrip (decoded transitions: {:?})",
+            decoded_line
         );
+    }
+
+    /// Single transition at arbitrary position should roundtrip cleanly.
+    /// Regression for the 23 "crash" artifacts surfaced by cargo fuzz cmin:
+    /// the decoder was producing non-canonical transition lists (appending
+    /// width sentinel), which the fuzz assertion flagged as mismatches.
+    #[test]
+    fn g4_roundtrip_canonical_form() {
+        for &(width, ref transitions) in &[
+            (10u16, vec![5]),
+            (2000, vec![10]),
+            (2000, vec![3, 51]),
+            (4, vec![3]),
+            (100, vec![50]),
+            (100, vec![1]),
+            (100, vec![99]),
+        ] {
+            let input_pels: Vec<_> = super::pels(transitions, width).collect();
+            let writer = crate::VecWriter::new();
+            let mut encoder = crate::encoder::Encoder::new(writer);
+            let _ = encoder.encode_line(input_pels.iter().copied(), width);
+            let encoded = encoder.finish().unwrap().finish();
+            let mut decoded = Vec::new();
+            let _ = decode_g4(encoded.into_iter(), width, Some(1), |line| {
+                decoded.push(line.to_vec());
+            });
+            let decoded_line = decoded.first().expect("decoded one line");
+            let output_pels: Vec<_> = super::pels(decoded_line, width).collect();
+            assert_eq!(
+                input_pels, output_pels,
+                "pels must roundtrip for width={width} transitions={transitions:?}, \
+                 got decoded transitions {decoded_line:?}"
+            );
+            // Canonical form: decoder must not append the width sentinel.
+            assert!(
+                decoded_line.iter().all(|&t| t < width),
+                "decoder produced non-canonical transition list {decoded_line:?} \
+                 (contains width={width}); transitions should all be < width"
+            );
+        }
     }
 }
