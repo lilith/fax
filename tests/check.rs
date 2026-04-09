@@ -104,10 +104,7 @@ fn roundtrip_encode_test_images() {
         };
         let img = read_pbm(&pbm);
         if let Err(line) = img.test_encode(&data, false) {
-            unexpected_failures.push(format!(
-                "{}: failed at line {line}",
-                p.display()
-            ));
+            unexpected_failures.push(format!("{}: failed at line {line}", p.display()));
         }
     }
     if !unexpected_failures.is_empty() {
@@ -194,9 +191,7 @@ impl TestImage {
                 ref_lines.len()
             ));
         }
-        for (i, (decoded, expected)) in
-            decoded_lines.iter().zip(ref_lines.iter()).enumerate()
-        {
+        for (i, (decoded, expected)) in decoded_lines.iter().zip(ref_lines.iter()).enumerate() {
             if decoded.as_slice() != *expected {
                 return Err(format!("line {i} pixel mismatch"));
             }
