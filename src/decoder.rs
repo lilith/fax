@@ -133,27 +133,18 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
 
 /// Check if the next bits form an EOL marker (possibly with fill bits).
 ///
-/// An EOL is `000000000001` (11 zeros + 1). Fill bits add extra leading zeros
-/// for byte alignment. No valid run-length code has more than 8 leading zeros,
-/// so 9+ leading zeros guarantees we're looking at fill + EOL, not a code.
+/// An EOL is `000000000001` (11 zeros + 1). Fill bits add extra leading
+/// zeros for byte alignment (up to 7). No valid run-length code has more
+/// than 7 leading zeros, so 8+ leading zeros guarantees fill + EOL.
 ///
-/// We check for EOL both with and without fill bits by peeking up to 16 bits.
+/// We peek at 9 bits: if all zero, this is definitely fill+EOL or bare EOL
+/// (the EOL itself starts with 11 zeros). This handles any fill count
+/// without exceeding the 16-bit peek window.
 fn is_eol_ahead<E, R: Iterator<Item = Result<u8, E>>>(reader: &ByteReader<R>) -> bool {
-    // Check without fill bits: exactly 000000000001
-    if reader.peek(EOL.len) == Some(EOL.data) {
-        return true;
-    }
-    // Check with 1-4 fill bits: the pattern is (fill zeros)(000000000001)
-    // Total bits = 12 + fill, and the value is still just 1 (all leading bits are zero).
-    for fill in 1u8..=4 {
-        let total = EOL.len + fill;
-        if let Some(val) = reader.peek(total) {
-            if val == EOL.data {
-                return true;
-            }
-        }
-    }
-    false
+    // 9 zero bits cannot be the start of any valid run-length code
+    // (max leading zeros in any code is 7). Must be fill + EOL.
+    // This also matches bare EOL (000000000001) since its first 9 bits are zero.
+    reader.peek(9) == Some(0)
 }
 
 /// Skip zero fill bits and consume the EOL marker (000000000001).

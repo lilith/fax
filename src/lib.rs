@@ -333,36 +333,56 @@ mod tests {
 
     #[test]
     fn test_group3_with_fill_bits() {
-        // Same as all_white test but with fill bits before each EOL.
-        // Fill bits pad with zeros to byte-align before the EOL.
-        let mut stream_bits = Vec::new();
-
+        // T.4 allows 0-7 fill bits (zeros) before each EOL for byte
+        // alignment. Test all fill counts to verify is_eol_ahead detects
+        // fill+EOL without the prefix tree consuming fill bits.
         let eol: &[u8] = &[0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1];
 
-        // Initial EOL with 4 fill bits (total 16 bits = 2 bytes)
-        stream_bits.extend_from_slice(&[0, 0, 0, 0]); // fill
-        stream_bits.extend_from_slice(eol);
+        for fill_count in 0u8..=7 {
+            let mut stream_bits = Vec::new();
 
-        // Line: white(8) = 10011 (5 bits)
-        stream_bits.extend_from_slice(&[1, 0, 0, 1, 1]);
-        // EOL with 7 fill bits (5 + 7 + 12 = 24 bits = 3 bytes)
-        stream_bits.extend_from_slice(&[0, 0, 0, 0, 0, 0, 0]); // fill
-        stream_bits.extend_from_slice(eol);
-
-        // RTC with fill bits before each
-        for _ in 0..5 {
-            stream_bits.extend_from_slice(&[0, 0, 0, 0]); // fill
+            // Initial EOL with fill
+            for _ in 0..fill_count {
+                stream_bits.push(0);
+            }
             stream_bits.extend_from_slice(eol);
+
+            // Line: white(4) = 1011
+            stream_bits.extend_from_slice(&[1, 0, 1, 1]);
+
+            // EOL with fill
+            for _ in 0..fill_count {
+                stream_bits.push(0);
+            }
+            stream_bits.extend_from_slice(eol);
+
+            // RTC: 5 more EOLs with fill
+            for _ in 0..5 {
+                for _ in 0..fill_count {
+                    stream_bits.push(0);
+                }
+                stream_bits.extend_from_slice(eol);
+            }
+
+            let data = bits_to_bytes(&stream_bits);
+            let mut lines = Vec::new();
+            decoder::decode_g3(data.into_iter(), |transitions| {
+                lines.push(transitions.to_vec());
+            });
+
+            assert_eq!(
+                lines.len(),
+                1,
+                "fill={fill_count}: expected 1 line, got {}",
+                lines.len()
+            );
+            assert_eq!(
+                lines[0],
+                vec![4],
+                "fill={fill_count}: expected [4], got {:?}",
+                lines[0]
+            );
         }
-
-        let data = bits_to_bytes(&stream_bits);
-        let mut lines = Vec::new();
-        decoder::decode_g3(data.into_iter(), |transitions| {
-            lines.push(transitions.to_vec());
-        });
-
-        assert_eq!(lines.len(), 1);
-        assert_eq!(lines[0], vec![8]);
     }
 
     #[test]
