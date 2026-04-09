@@ -193,13 +193,28 @@ pub fn decode_g4(
     let reader = input.map(Result::<u8, Infallible>::Ok);
     let mut decoder = Group4Decoder::new(reader, width).ok()?;
 
-    for y in 0..height.unwrap_or(u16::MAX) {
+    let max_lines = height.unwrap_or(u16::MAX);
+    let mut lines_emitted: u16 = 0;
+
+    while lines_emitted < max_lines {
         let status = decoder.advance().ok()?;
         if status == DecodeStatus::End {
-            return Some(());
+            break;
         }
         line_cb(decoder.transition());
+        lines_emitted += 1;
     }
+
+    // Some encoders omit trailing all-white lines before the EOFB,
+    // expecting the receiver to pad to the known height.
+    // Empty transitions = all-white line (pels handles this correctly).
+    if let Some(h) = height {
+        while lines_emitted < h {
+            line_cb(&[]);
+            lines_emitted += 1;
+        }
+    }
+
     Some(())
 }
 
