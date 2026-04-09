@@ -133,27 +133,18 @@ impl<E: std::fmt::Debug, R: Iterator<Item = Result<u8, E>>> Group3Decoder<R> {
 
 /// Check if the next bits form an EOL marker (possibly with fill bits).
 ///
-/// An EOL is `000000000001` (11 zeros + 1). Fill bits add extra leading zeros
-/// for byte alignment. No valid run-length code has more than 8 leading zeros,
-/// so 9+ leading zeros guarantees we're looking at fill + EOL, not a code.
+/// An EOL is `000000000001` (11 zeros + 1). Fill bits add extra leading
+/// zeros for byte alignment (up to 7). No valid run-length code has more
+/// than 7 leading zeros, so 8+ leading zeros guarantees fill + EOL.
 ///
-/// We check for EOL both with and without fill bits by peeking up to 16 bits.
+/// We peek at 9 bits: if all zero, this is definitely fill+EOL or bare EOL
+/// (the EOL itself starts with 11 zeros). This handles any fill count
+/// without exceeding the 16-bit peek window.
 fn is_eol_ahead<E, R: Iterator<Item = Result<u8, E>>>(reader: &ByteReader<R>) -> bool {
-    // Check without fill bits: exactly 000000000001
-    if reader.peek(EOL.len) == Some(EOL.data) {
-        return true;
-    }
-    // Check with 1-4 fill bits: the pattern is (fill zeros)(000000000001)
-    // Total bits = 12 + fill, and the value is still just 1 (all leading bits are zero).
-    for fill in 1u8..=4 {
-        let total = EOL.len + fill;
-        if let Some(val) = reader.peek(total) {
-            if val == EOL.data {
-                return true;
-            }
-        }
-    }
-    false
+    // 9 zero bits cannot be the start of any valid run-length code
+    // (max leading zeros in any code is 7). Must be fill + EOL.
+    // This also matches bare EOL (000000000001) since its first 9 bits are zero.
+    reader.peek(9) == Some(0)
 }
 
 /// Skip zero fill bits and consume the EOL marker (000000000001).
@@ -193,13 +184,28 @@ pub fn decode_g4(
     let reader = input.map(Result::<u8, Infallible>::Ok);
     let mut decoder = Group4Decoder::new(reader, width).ok()?;
 
-    for y in 0..height.unwrap_or(u16::MAX) {
+    let max_lines = height.unwrap_or(u16::MAX);
+    let mut lines_emitted: u16 = 0;
+
+    while lines_emitted < max_lines {
         let status = decoder.advance().ok()?;
         if status == DecodeStatus::End {
-            return Some(());
+            break;
         }
         line_cb(decoder.transition());
+        lines_emitted += 1;
     }
+
+    // Some encoders omit trailing all-white lines before the EOFB,
+    // expecting the receiver to pad to the known height.
+    // Empty transitions = all-white line (pels handles this correctly).
+    if let Some(h) = height {
+        while lines_emitted < h {
+            line_cb(&[]);
+            lines_emitted += 1;
+        }
+    }
+
     Some(())
 }
 
