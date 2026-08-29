@@ -4,3 +4,6 @@ Cargo.lock
 fuzz/target/
 fuzz/artifacts/
 fuzz/corpus/
+
+# Agent coordination marker (see ~/.claude/CLAUDE.md) — never committed.
+.workongoing
