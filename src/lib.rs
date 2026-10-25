@@ -123,7 +123,15 @@ pub struct ByteReader<R> {
     read: R,
     partial: u32,
     valid: u8,
+    /// Zero bytes still to supply after the input ends.
+    padding: u8,
 }
+
+/// Zero bytes appended after the input. The code tables peek up to 16 bits, so without them a
+/// code in the last bits of the data could not be matched. Zero bits complete no code and read
+/// as EOL fill; the amount is bounded so loops that skip zero bits still reach the end.
+const END_PADDING_BYTES: u8 = 2;
+
 impl<E, R: Iterator<Item = Result<u8, E>>> ByteReader<R> {
     /// Construct a new `ByteReader` from an iterator of `u8`
     pub fn new(read: R) -> Result<Self, E> {
@@ -131,6 +139,7 @@ impl<E, R: Iterator<Item = Result<u8, E>>> ByteReader<R> {
             read,
             partial: 0,
             valid: 0,
+            padding: END_PADDING_BYTES,
         };
         bits.fill()?;
         Ok(bits)
@@ -143,6 +152,11 @@ impl<E, R: Iterator<Item = Result<u8, E>>> ByteReader<R> {
                     self.valid += 8;
                 }
                 Some(Err(e)) => return Err(e),
+                None if self.padding > 0 => {
+                    self.padding -= 1;
+                    self.partial <<= 8;
+                    self.valid += 8;
+                }
                 None => break,
             }
         }
@@ -203,6 +217,11 @@ impl<E, R: Iterator<Item = Result<u8, E>>> BitReader for ByteReader<R> {
         }
     }
     fn consume(&mut self, bits: u8) -> Result<(), E> {
+        if bits > self.valid {
+            // Consuming past everything buffered means the end was already passed; supply no
+            // further padding.
+            self.padding = 0;
+        }
         self.valid = self.valid.saturating_sub(bits);
         self.fill()
     }
