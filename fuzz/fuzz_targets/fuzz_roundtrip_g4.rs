@@ -18,22 +18,23 @@ fuzz_target!(|data: &[u8]| {
     if data.len() < 3 {
         return;
     }
-    let width = u16::from_le_bytes([data[0], data[1]]).max(1).min(2000);
+    let width16 = u16::from_le_bytes([data[0], data[1]]).max(1).min(2000);
+    let width = u32::from(width16);
     let remaining = &data[2..];
 
     // Build transition list from fuzz input (monotonic, within [0, width))
-    let mut transitions: Vec<u16> = Vec::new();
+    let mut transitions: Vec<u32> = Vec::new();
     let mut pos = 0u16;
     for &b in remaining {
-        let step = (b as u16).min(width.saturating_sub(1).saturating_sub(pos));
+        let step = (b as u16).min(width16.saturating_sub(1).saturating_sub(pos));
         if step == 0 {
             break;
         }
         pos = pos.saturating_add(step);
-        if pos >= width {
+        if pos >= width16 {
             break;
         }
-        transitions.push(pos);
+        transitions.push(u32::from(pos));
     }
 
     // Expected pels from the input
