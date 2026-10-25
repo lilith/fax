@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
     let payload = &data[4..];
 
     let mut lines = 0u32;
-    decoder::decode_g4(payload.iter().copied(), width, height, |_transitions| {
+    decoder::decode_g4(payload.iter().copied(), u32::from(width), height.map(u32::from), |_transitions| {
         lines += 1;
         if lines > 10_000 {
             return;
