@@ -1,21 +1,21 @@
-use fax::{VecWriter, decoder, decoder::pels, BitWriter, Bits, Color};
-use std::io::Write;
+use fax::{decoder, decoder::pels, BitWriter, Bits, Color, VecWriter};
 use std::fs::{self, File};
+use std::io::Write;
 
 fn main() {
     let mut args = std::env::args().skip(1);
     let input: String = args.next().unwrap();
-    let width: u16 = args.next().unwrap().parse().unwrap();
+    let width: u32 = args.next().unwrap().parse().unwrap();
     let output = args.next().unwrap();
 
     let data = fs::read(&input).unwrap();
     let mut writer = VecWriter::new();
     let mut height = 0;
-    decoder::decode_g4(data.iter().cloned(), width, None,  |transitions| {
+    decoder::decode_g4(data.iter().cloned(), width, None, |transitions| {
         for c in pels(transitions, width) {
             let bit = match c {
                 Color::Black => Bits { data: 1, len: 1 },
-                Color::White => Bits { data: 0, len: 1 }
+                Color::White => Bits { data: 0, len: 1 },
             };
             writer.write(bit);
         }

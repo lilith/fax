@@ -6,13 +6,13 @@ name: Fuzz
 # Why it exists: `fuzz/` declares its own `[workspace] members = ["."]` (it has
 # to, so `cargo fuzz` can resolve it standalone), which makes it invisible to
 # every root-level cargo invocation. ci.yml's `cargo test --lib`, `cargo clippy
-# --all-targets` and `cargo check` all run against the root package, so the two
+# --all-targets` and `cargo check` all run against the root package, so the
 # targets in `fuzz/fuzz_targets/` were compiled by nothing on any push. They
 # could rot against a `fax` API change and CI would stay green. A workspace-wide
 # audit on 2026-08-29 found 35 such uncompiled targets across 11 repos; one
 # repo's set had been broken for roughly seven weeks before anyone noticed.
-# Both targets here still compiled when this gate was added, which is when it is
-# cheapest to add.
+# The targets still compiled when this gate was added, which is when it is
+# cheapest to add. Upstream's later `fuzz_roundtrip_g4` target is covered too.
 #
 # Why `cargo check` and not `cargo fuzz build`: `cargo fuzz` needs a nightly
 # toolchain plus `-Zsanitizer=address`, and fully codegens the dependency graph

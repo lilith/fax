@@ -29,3 +29,10 @@ doc = false
 name = "fuzz_decode_g4"
 path = "fuzz_targets/fuzz_decode_g4.rs"
 doc = false
+
+[[bin]]
+name = "fuzz_roundtrip_g4"
+path = "fuzz_targets/fuzz_roundtrip_g4.rs"
+test = false
+doc = false
+bench = false

@@ -29,10 +29,10 @@ jobs:
       - uses: Swatinem/rust-cache@v2
 
       - name: Test
-        run: cargo test --lib
+        run: cargo test
 
       - name: Test (debug feature)
-        run: cargo test --lib --features debug
+        run: cargo test --features debug
 
   clippy:
     name: Clippy
